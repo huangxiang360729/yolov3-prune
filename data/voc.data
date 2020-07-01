@@ -1,0 +1,4 @@
+classes=20
+train=/home/hx/jupyter/VOCdevkit/train.txt
+valid=/home/hx/jupyter/VOCdevkit/2007_test_test.txt
+names=/home/hx/jupyter/VOCdevkit/voc.names
