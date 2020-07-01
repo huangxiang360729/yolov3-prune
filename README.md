@@ -3,7 +3,7 @@
 * 采用的YOLOv3 Pytorch实现：https://github.com/ultralytics/yolov3
 * 本项目的将原剪枝代码移植到了新U版的YOLOv3Pytorch实现(2020/06/25)
 
-### 通道剪枝原理
+## 通道剪枝原理
 + 源于：《Learning Efficient Convolutional Networks Through Network Slimming》 (ICCV 2017)
 + 剪枝前的模型中包含了大量的冗余特征（其实就是冗余的通道），我们在剪枝前得先确定哪些通道是不那么重要的（即那些不会对检测任务产生很大影响的通道）。
 
@@ -29,7 +29,7 @@
 
     * 如果不进行稀疏化训练就直接按照gamma系数进行从小到大的排序，然后减去top-N，那么剪枝后模型的精度肯定非常低（接近0，或者0），通过微调或许可以恢复模型精度，但是这就相当于从零训练一个神经网络，而且如果剪枝率设的很大的化，很有可能微调后模型精度降很多。
 
-### 剪枝步骤
+## 剪枝步骤
 1. 正常训练得到模型的参数（也可以采用迁移学习的方式获取模型的参数）
 2. 稀疏化训练
     * 这里说的稀疏化训练指的是在损失函数中添加关于BN层的gamma系数的L1正则化项，然后反向传递的时候gamma系数会相应的进行梯度更新（实际上代码里并没有对损失函数进行修改，而是对那些能够被剪枝的通道对应的gamma系数的梯度添加上L1正则化惩罚项，然后在反向传播时，gamma系数会减掉lr乘上梯度。值得注意的是gammma系数的梯度包含了损失函数对其求导项也包含了L1正则化惩罚项）
@@ -41,7 +41,7 @@
 5. Multi-pass Scheme（迭代剪枝）
     * 返回第2步进行新一轮的剪枝
 
-### 稀疏方式
+## 稀疏方式
 + 这里说的稀疏方式指的是对哪些层的gamma系数能够进行稀疏化，哪些层的gamma系数不能够稀疏化
 + 总共有两种稀疏方式：：
     * 稀疏方式0，在运行代码时需要指定prune = 0: 
@@ -55,49 +55,50 @@
 + 剪枝方式依赖于稀疏方式
     * 朴素的剪枝方式（不对shortcut直连的前一个CBL和跨层连接CBL的进行剪枝）采用稀疏方式0，而其他剪枝方式采用稀疏方式1
 
-### 剪枝方式
-+ 朴素的剪枝方式（prune.py）
-    * 不对shortcut直连的前一个CBL和跨层连接CBL的进行剪枝
+## 剪枝方式
+### prune.py
+   * 最朴素的剪枝方式
+   * 不对shortcut直连的前一个CBL和跨层连接CBL的进行剪枝
 
 ***
-+ shortcut_prune.py
-    * 针对shortcut,前面的shortcut跨层连接的CBL剪完后，后面对应的该shotcut直连的前一个CBL也要采用同样的filter掩码进行剪枝（为了满足shortcut的对应通道相加）
-    * 剪枝步骤
-        + CBL_idx，包含BN层的卷积模块构成的索引列表
-        + ignore_idx，模型结构的限制下，不能够被剪枝的CBL构成的索引列表（spp前一个CBL不剪,上采样层前的CBL不剪)
-        + prune_idx，能够被剪枝的CBL构成的索引列表（CBL_idx - ignore_idx）
-        + sort_prune_idx，从prune_idx中去掉shortcut直连的前一个CBL，注意这里的sort_prune_idx依然包含shortcut跨层连接的CBL
-        + sort_bn，对sort_prune_idx包含的所有CBL的gamma系数进行排序
-        + threshold，根据sort_bn和剪枝率求得gamma系数阈值，sort_bn中所有小于该threshold的gamma系数置0，而大于或等于该threshold的gamma系数不变
-        + filters_mask
-            * 表示模型中每一个CBL对应的剪枝掩码
-            * 对gamma系数小于threshold的filter设置剪枝掩码为0，表示剪枝；对gamma系数大于或等于threshold的filter设置剪枝掩码为1，表示不剪枝
-            * 需要特别考虑的地方：shortcut直连的前一个CBL的filter掩码应该设置为该shortcut跨层连接的CBL的filter掩码（即前面的shortcut跨层连接的CBL剪完后，后面对应的该shotcut直连的前一个CBL也要采用同样的filter掩码进行剪枝（为了满足shortcut的对应通道相加））
-            * 不能够被剪枝的CBL的剪枝掩码设置全1
-        + 根据filter_mask生成剪枝后的紧凑模型，并从剪枝前的宽松模型中加载参数
+### shortcut_prune.py
+* 针对shortcut,前面的shortcut跨层连接的CBL剪完后，后面对应的该shotcut直连的前一个CBL也要采用同样的filter掩码进行剪枝（为了满足shortcut的对应通道相加）
+* 剪枝步骤
+  + CBL_idx，包含BN层的卷积模块构成的索引列表
+  + ignore_idx，模型结构的限制下，不能够被剪枝的CBL构成的索引列表（spp前一个CBL不剪,上采样层前的CBL不剪)
+  + prune_idx，能够被剪枝的CBL构成的索引列表（CBL_idx - ignore_idx）
+  + sort_prune_idx，从prune_idx中去掉shortcut直连的前一个CBL，注意这里的sort_prune_idx依然包含shortcut跨层连接的CBL
+  + sort_bn，对sort_prune_idx包含的所有CBL的gamma系数进行排序
+  + threshold，根据sort_bn和剪枝率求得gamma系数阈值，sort_bn中所有小于该threshold的gamma系数置0，而大于或等于该threshold的gamma系数不变
+  + filters_mask
+      * 表示模型中每一个CBL对应的剪枝掩码
+      * 对gamma系数小于threshold的filter设置剪枝掩码为0，表示剪枝；对gamma系数大于或等于threshold的filter设置剪枝掩码为1，表示不剪枝
+      * 需要特别考虑的地方：shortcut直连的前一个CBL的filter掩码应该设置为该shortcut跨层连接的CBL的filter掩码（即前面的shortcut跨层连接的CBL剪完后，后面对应的该shotcut直连的前一个CBL也要采用同样的filter掩码进行剪枝（为了满足shortcut的对应通道相加））
+      * 不能够被剪枝的CBL的剪枝掩码设置全1
+  + 根据filter_mask生成剪枝后的紧凑模型，并从剪枝前的宽松模型中加载参数
         
 ***
-+ slim_prune.py
-    * 针对shortcut,将shortcut相关联的所有CBL的filter掩码对0求交集，即只有所有CBL在某个位置的filter被剪枝，则所有CBL在该位置的filter才能被剪枝， 但凡有一个CBL中的在该位置的filter不被剪枝，则所有CBL在该位置的filter都不被剪枝
-    * 剪枝步骤
-        + CBL_idx，包含BN层的卷积模块构成的索引列表
-        + ignore_idx，模型结构的限制下，不能够被剪枝的CBL构成的索引列表（spp前一个CBL不剪,上采样层前的CBL不剪)
-        + prune_idx，能够被剪枝的CBL构成的索引列表（CBL_idx - ignore_idx）
-        + sort_bn，对prune_idx包含的所有CBL的gamma系数进行排序
-        + threshold，根据sort_bn和剪枝率求得gamma系数阈值，sort_bn中所有小于该threshold的gamma系数置0，而大于或等于该threshold的gamma系数不变
-        + filters_mask
-            * 表示模型中每一个CBL对应的剪枝掩码
-            * 对gamma系数置0的filter设置剪枝掩码为0，表示剪枝；对gamma系数置1的filter设置剪枝掩码为1，表示不剪枝
-            * 需要特别考虑的地方：将shortcut相关联的所有CBL的filter掩码对0求交集，即只有所有CBL在某个位置的filter被剪枝，则所有CBL在该位置的filter才能被剪枝， 但凡有一个CBL中的在该位置的filter不被剪枝，则所有CBL在该位置的filter都不被剪枝
-                * shortcut相关联的所有CBL指的是shortcut直连的前一个CBL和shortcut跨层连接相关的CBL，shortcut的跨层连接可能是一个CBL也可能是一个shortcut，当shortcut的跨层连接是shortcut时就存在一个级联的多个CBL(3个及3个以上)共享同一个filter掩码
-            * 不能够被剪枝的CBL的剪枝掩码设置全1
-        + 根据filter_mask生成剪枝后的紧凑模型，并从剪枝前的宽松模型中加载参数
+### slim_prune.py
+* 针对shortcut,将shortcut相关联的所有CBL的filter掩码对0求交集，即只有所有CBL在某个位置的filter被剪枝，则所有CBL在该位置的filter才能被剪枝， 但凡有一个CBL中的在该位置的filter不被剪枝，则所有CBL在该位置的filter都不被剪枝
+* 剪枝步骤
+  + CBL_idx，包含BN层的卷积模块构成的索引列表
+  + ignore_idx，模型结构的限制下，不能够被剪枝的CBL构成的索引列表（spp前一个CBL不剪,上采样层前的CBL不剪)
+  + prune_idx，能够被剪枝的CBL构成的索引列表（CBL_idx - ignore_idx）
+  + sort_bn，对prune_idx包含的所有CBL的gamma系数进行排序
+  + threshold，根据sort_bn和剪枝率求得gamma系数阈值，sort_bn中所有小于该threshold的gamma系数置0，而大于或等于该threshold的gamma系数不变
+  + filters_mask
+      * 表示模型中每一个CBL对应的剪枝掩码
+      * 对gamma系数置0的filter设置剪枝掩码为0，表示剪枝；对gamma系数置1的filter设置剪枝掩码为1，表示不剪枝
+      * 需要特别考虑的地方：将shortcut相关联的所有CBL的filter掩码对0求交集，即只有所有CBL在某个位置的filter被剪枝，则所有CBL在该位置的filter才能被剪枝， 但凡有一个CBL中的在该位置的filter不被剪枝，则所有CBL在该位置的filter都不被剪枝
+          * shortcut相关联的所有CBL指的是shortcut直连的前一个CBL和shortcut跨层连接相关的CBL，shortcut的跨层连接可能是一个CBL也可能是一个shortcut，当shortcut的跨层连接是shortcut时就存在一个级联的多个CBL(3个及3个以上)共享同一个filter掩码
+      * 不能够被剪枝的CBL的剪枝掩码设置全1
+  + 根据filter_mask生成剪枝后的紧凑模型，并从剪枝前的宽松模型中加载参数
 
 ***
-+ 层剪枝（layer_prune.py）
-    * 这里的层剪枝实际上是针对shortcut的剪枝，针对每一个shortcut的前一个CBL的gamma均值进行排序，取最小的若干个shortcut进行剪枝。为保证yolov3结构完整，这里每剪一个shortcut模块，会同时剪掉一个shortcut模块和它前面的两个卷积模块（Residual Block）。并且只考虑剪主干网络（backbone）中的shortcut模块。
-    * Residual Block是不会改变通道数目和特征图大小的，层剪枝正是利用了这一点，关于评价某一层的重要性，这里采用的是shortcut的前一个CBL的gamma均值，这个也是和剪枝论文的原理相通的，即稀疏后gamma系数越小的越不重要，而一个Residual Block需要学习的特征正是残差F(x)=H(x)-x，如果shortcut的前一个CBL的gamma均值（实际上是gamma系数绝对值的均值）较小，那么F(x)的输出值的绝对值也会较小，也即该Residual Block没有存在的必要。
+### 层剪枝（layer_prune.py）
+ * 这里的层剪枝实际上是针对shortcut的剪枝，针对每一个shortcut的前一个CBL的gamma均值进行排序，取最小的若干个shortcut进行剪枝。为保证yolov3结构完整，这里每剪一个shortcut模块，会同时剪掉一个shortcut模块和它前面的两个卷积模块（Residual Block）。并且只考虑剪主干网络（backbone）中的shortcut模块。
+ * Residual Block是不会改变通道数目和特征图大小的，层剪枝正是利用了这一点，关于评价某一层的重要性，这里采用的是shortcut的前一个CBL的gamma均值，这个也是和剪枝论文的原理相通的，即稀疏后gamma系数越小的越不重要，而一个Residual Block需要学习的特征正是残差F(x)=H(x)-x，如果shortcut的前一个CBL的gamma均值（实际上是gamma系数绝对值的均值）较小，那么F(x)的输出值的绝对值也会较小，也即该Residual Block没有存在的必要。
     
 ***
-+ 同时通道剪枝和层剪枝（layer_channel_prune.py）
-    * 没有新的东西，实际上是先进行通道剪枝，然后进行层剪枝，只不过把两个python脚本（slim_prune.py和layer_prune.py）的主要功能写在一块了
+### 同时通道剪枝和层剪枝（layer_channel_prune.py）
+ * 没有新的东西，实际上是先进行通道剪枝，然后进行层剪枝，只不过把两个python脚本（slim_prune.py和layer_prune.py）的主要功能写在一块了
