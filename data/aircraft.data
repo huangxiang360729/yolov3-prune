@@ -1,0 +1,4 @@
+classes= 4
+train=/home/hx/jupyter/RSOD_dataset/train.txt
+valid=/home/hx/jupyter/RSOD_dataset/valid.txt
+names=/home/hx/jupyter/RSOD_dataset/aircraft.names
