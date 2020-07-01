@@ -149,4 +149,6 @@ do
     mv -f weights/best.pt ${prefix}/percent-${global_percent}/weights
 done
 
+rm -rf runs
+
 echo "################ finish baseline, sp, prune, finetune!!!!!!!!!!!!"
