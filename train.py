@@ -313,8 +313,8 @@ def train(hyp):
             lr = adjust_learning_rate(optimizer, 0.1, epoch, ni, nb)
 
             # Tensorboard
-            if tb_writer:
-                tb_writer.add_scalar("lr", lr, ni)
+            # if tb_writer:
+                # tb_writer.add_scalar("lr", lr, ni)
 
             if i == 0:
                 print('learning rate:', lr)
