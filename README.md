@@ -15,7 +15,8 @@
 
 + 而这篇论文中采用的原理是：
     * 对BN层的gamma系数进行稀疏化，然后用稀疏化后的gamma系数来评价通道的重要性，因为在<卷积层-BN层-激活函数>中，gamma系数为0就说明了无论卷积层输出的值为何，到了BN层后，它的输出值都变成了：
-    其中，$\gamma$即为BN层的gamma系数（在源码中就是bn_module.weight）；$\beta$即为BN层的beta项（在源码中就是bn_module.bias）；$X$为卷积层的某个输出通道；$Y$为BN层的在改通道上对应的输出；$\mu$为BN层的均值参数（即bn_module.moving_mean）；$\sigma$为BN层的方差参数（即bn_module.moving_var）；$\epsilon$是为了防止分母为0，可以取1e-16。
+    * <div align=center><img width="150" height="150" src="https://github.com/huangxiang360729/img-storage/blob/master/yolov3-prune-0.gif"/></div>
+    * 其中，gamma即为BN层的gamma系数（在源码中就是bn_module.weight）；beta即为BN层的beta项（在源码中就是bn_module.bias）；X为卷积层的某个输出通道；Y为BN层的在改通道上对应的输出；mu为BN层的均值参数（即bn_module.moving_mean）；sigma为BN层的方差参数（即bn_module.moving_var）；epsilon是为了防止分母为0，可以取1e-16。
     * 上式说明这个卷积层该通道的输出已经对后续模块的前向计算不产影响了，那我们只需要把beta项挪到后续模块中卷积层的bias中或者后续模块的BN层的moving_mean中就可以了：
         + 将beta项作为激活函数的输入可以得到当前模块<卷积层-BN层-激活函数>的输出activation，这个输出要传到下一个模块中，我们可以将它视为剪枝前后模型的计算偏差，为了弥补这个计算偏差，可以这样处理：
             > 1. 当下一个模块是<卷积层-BN层-激活函数>时，BN层的next_bn_module.moving_mean减去Convolution(activation)即可
