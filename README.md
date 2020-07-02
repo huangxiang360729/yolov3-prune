@@ -18,7 +18,7 @@
    + 损失函数泰勒展开的一阶项(从计算的角度看其实就是卷积层输出通道的值乘上损失函数关于该输出通道的梯度并对该乘积求绝对值；从数学意义上理解：采用用通道的有无对loss的影响来表达通道的重要性，即比较有该通道时的loss值和无该通道时的loss值，如果两者相差较大那么说明该通道很重要，但是为了计算的简便性采用两个loss差值的一阶泰勒展开项来代表这个差值)
 
 + 而这篇论文中采用的原理是：
-   * 对BN层的gamma系数进行稀疏化，然后用稀疏化后的gamma系数来评价通道的重要性，因为在<卷积层-BN层-激活函数>中，gamma系数为0就说明了无论卷积层输出的值为何，到了BN层后，它的输出值都变成了：
+   * 对BN层的gamma系数进行稀疏化（L1正则化），然后用稀疏化后的gamma系数来评价通道的重要性，因为在<卷积层-BN层-激活函数>中，gamma系数为0就说明了无论卷积层输出的值为何，到了BN层后，它的输出值都变成了：
    * <div align=center><img width="150" height="150" src="https://github.com/huangxiang360729/img-storage/blob/master/yolov3-prune-0.gif"/></div>
    * 其中，gamma即为BN层的gamma系数（在源码中就是bn_module.weight）；beta即为BN层的beta项（在源码中就是bn_module.bias）；X为卷积层的某个输出通道；Y为BN层的在改通道上对应的输出；mu为BN层的均值参数（即bn_module.moving_mean）；sigma为BN层的方差参数（即bn_module.moving_var）；epsilon是为了防止分母为0，可以取1e-16。
    * 上式说明这个卷积层该通道的输出已经对后续模块的前向计算不产影响了，那我们只需要把beta项挪到后续模块中卷积层的bias中或者后续模块的BN层的moving_mean中就可以了：
