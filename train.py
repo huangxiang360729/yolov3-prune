@@ -77,6 +77,11 @@ def train(hyp):
     weights = opt.weights  # initial training weights
     imgsz_min, imgsz_max, imgsz_test = opt.img_size  # img sizes (min, max, test)
 
+    #+++++++++++++++++++++++++ insert +++++++++++++++++++++++++#
+    t_cfg = opt.t_cfg  #teacher model cfg for knowledge distillation
+    t_weights = opt.t_weights  #teacher model weights
+    #+++++++++++++++++++++++++ insert end++++++++++++++++++++++#
+
     # Image Sizes
     gs = 32  # (pixels) grid size
     assert math.fmod(imgsz_min, gs) == 0, '--img-size %g must be a %g-multiple' % (imgsz_min, gs)
@@ -103,6 +108,10 @@ def train(hyp):
 
     # Initialize model
     model = Darknet(cfg).to(device)
+    #+++++++++++++++++++++++++ insert +++++++++++++++++++++++++#
+    if t_cfg:
+        t_model = Darknet(t_cfg).to(device)
+    #+++++++++++++++++++++++++ insert end++++++++++++++++++++++#
 
     # Optimizer
     pg0, pg1, pg2 = [], [], []  # optimizer parameter groups
@@ -163,6 +172,20 @@ def train(hyp):
         #+++++++++++++++++++++++++ insert end++++++++++++++++++++++#
 
     #+++++++++++++++++++++++++ insert +++++++++++++++++++++++++#
+    if t_cfg:
+        if t_weights.endswith('.pt'):
+            t_model.load_state_dict(torch.load(t_weights, map_location=device)['model'])
+        elif t_weights.endswith('.weights'):
+            load_darknet_weights(t_model, t_weights)
+        else:
+            raise Exception('pls provide proper teacher weights for knowledge distillation')
+        if not mixed_precision:
+            t_model.eval()
+        print('<.....................using knowledge distillation.......................>')
+        print('teacher model:', t_weights, '\n')
+    #+++++++++++++++++++++++++ insert end++++++++++++++++++++++#
+
+    #+++++++++++++++++++++++++ insert +++++++++++++++++++++++++#
     if opt.prune==1:
         CBL_idx, _, prune_idx, shortcut_idx, _=parse_module_defs2(model.module_defs)
         if opt.sr:
@@ -219,6 +242,15 @@ def train(hyp):
     # plt.ylabel('LR')
     # plt.tight_layout()
     # plt.savefig('LR.png', dpi=300)
+
+    #+++++++++++++++++++++++++ insert +++++++++++++++++++++++++#
+    # Mixed precision training https://github.com/NVIDIA/apex
+    if mixed_precision:
+        if t_cfg:
+            [model, t_model], optimizer = amp.initialize([model, t_model], optimizer, opt_level='O1', verbosity=1)
+        else:
+            model, optimizer = amp.initialize(model, optimizer, opt_level='O1', verbosity=1)
+    #+++++++++++++++++++++++++ insert end++++++++++++++++++++++#
 
     # Initialize distributed training
     if device.type != 'cpu' and torch.cuda.device_count() > 1 and torch.distributed.is_available():
@@ -298,12 +330,21 @@ def train(hyp):
             dataset.indices = random.choices(range(dataset.n), weights=image_weights, k=dataset.n)  # rand weighted idx
 
         mloss = torch.zeros(4).to(device)  # mean losses
-        print(('\n' + '%10s' * 8) % ('Epoch', 'gpu_mem', 'GIoU', 'obj', 'cls', 'total', 'targets', 'img_size'))
-        pbar = tqdm(enumerate(dataloader), total=nb)  # progress bar
+
+        #+++++++++++++++++++++++++ insert +++++++++++++++++++++++++#
+        msoft_target = torch.zeros(1).to(device)
+        #+++++++++++++++++++++++++ insert end++++++++++++++++++++++#
 
         #+++++++++++++++++++++++++ insert +++++++++++++++++++++++++#
         sr_flag = get_sr_flag(epoch, opt.sr)
         #+++++++++++++++++++++++++ insert end++++++++++++++++++++++#
+
+        #+++++++++++++++++++++++++ insert +++++++++++++++++++++++++#
+        # print(('\n' + '%10s' * 8) % ('Epoch', 'gpu_mem', 'GIoU', 'obj', 'cls', 'total', 'targets', 'img_size'))
+        print(('\n' + '%10s' * 10) % ('Epoch', 'gpu_mem', 'GIoU', 'obj', 'cls', 'total', 'soft', 'rratio', 'targets', 'img_size'))
+        #+++++++++++++++++++++++++ insert end++++++++++++++++++++++#
+
+        pbar = tqdm(enumerate(dataloader), total=nb)  # progress bar
 
         for i, (imgs, targets, paths, _) in pbar:  # batch -------------------------------------------------------------
             ni = i + nb * epoch  # number integrated batches (since train start)
@@ -357,6 +398,21 @@ def train(hyp):
                 print('WARNING: non-finite loss, ending training ', loss_items)
                 return results
 
+            #+++++++++++++++++++++++++ insert +++++++++++++++++++++++++#
+            soft_target = 0
+            reg_ratio = 0  #表示有多少target的回归是不如老师的，这时学生会跟gt再学习
+            if t_cfg:
+                if mixed_precision:
+                    with torch.no_grad():
+                        output_t = t_model(imgs)
+                else:
+                    _, output_t = t_model(imgs)
+                #soft_target = distillation_loss1(pred, output_t, model.nc, imgs.size(0))
+                #这里把蒸馏策略改为了二，想换回一的可以注释掉loss2，把loss1取消注释
+                soft_target, reg_ratio = distillation_loss2(model, pred, targets, pred, output_t)
+                loss += soft_target
+            #+++++++++++++++++++++++++ insert end++++++++++++++++++++++#
+
             # Backward
             loss *= batch_size / 64  # scale loss
             if mixed_precision:
@@ -383,10 +439,20 @@ def train(hyp):
                 ema.update(model)
 
             # Print
+            #+++++++++++++++++++++++++ insert +++++++++++++++++++++++++#
+            """
             mloss = (mloss * i + loss_items) / (i + 1)  # update mean losses
             mem = '%.3gG' % (torch.cuda.memory_cached() / 1E9 if torch.cuda.is_available() else 0)  # (GB)
             s = ('%10s' * 2 + '%10.3g' * 6) % ('%g/%g' % (epoch, epochs - 1), mem, *mloss, len(targets), img_size)
             pbar.set_description(s)
+            """
+            mloss = (mloss * i + loss_items) / (i + 1)  # update mean losses
+            msoft_target = (msoft_target * i + soft_target) / (i + 1)
+            mem = torch.cuda.memory_cached() / 1E9 if torch.cuda.is_available() else 0  # (GB)
+            s = ('%10s' * 2 + '%10.3g' * 8) % (
+                '%g/%g' % (epoch, epochs - 1), '%.3gG' % mem, *mloss, msoft_target, reg_ratio, len(targets), img_size)
+            pbar.set_description(s)
+            #+++++++++++++++++++++++++ insert end++++++++++++++++++++++#
 
             # Plot
             if ni < 1:
@@ -427,11 +493,20 @@ def train(hyp):
 
         # Tensorboard
         if tb_writer:
+            #+++++++++++++++++++++++++ insert +++++++++++++++++++++++++#
+            """
             tags = ['train/giou_loss', 'train/obj_loss', 'train/cls_loss',
                     'metrics/precision', 'metrics/recall', 'metrics/mAP_0.5', 'metrics/F1',
                     'val/giou_loss', 'val/obj_loss', 'val/cls_loss']
             for x, tag in zip(list(mloss[:-1]) + list(results), tags):
                 tb_writer.add_scalar(tag, x, epoch)
+            """
+            tags = ['train/giou_loss', 'train/obj_loss', 'train/cls_loss',
+                    'metrics/precision', 'metrics/recall', 'metrics/mAP_0.5', 'metrics/F1',
+                    'val/giou_loss', 'val/obj_loss', 'val/cls_loss', 'soft_loss']
+            for x, tag in zip(list(mloss[:-1]) + list(results) +[msoft_target], tags):
+                tb_writer.add_scalar(tag, x, epoch)
+            #+++++++++++++++++++++++++ insert end++++++++++++++++++++++#
 
             #+++++++++++++++++++++++++ insert +++++++++++++++++++++++++#
             if isinstance(model, torch.nn.parallel.DistributedDataParallel):
@@ -536,6 +611,9 @@ if __name__ == '__main__':
                         help='train with channel sparsity regularization')
     parser.add_argument('--s', type=float, default=0.001, help='scale sparse rate')
     parser.add_argument('--prune', type=int, default=1, help='0:nomal prune 1:other prune ')
+
+    parser.add_argument('--t_cfg', type=str, default='', help='teacher model cfg file path for knowledge distillation')
+    parser.add_argument('--t_weights', type=str, default='', help='teacher model weights')
     #+++++++++++++++++++++++++ insert end++++++++++++++++++++++#
 
     opt = parser.parse_args()
