@@ -11,6 +11,9 @@ from sys import platform
 
 import cv2
 import matplotlib
+#+++++++++++++++++++++++++ insert +++++++++++++++++++++++++#
+matplotlib.use('Agg')
+#+++++++++++++++++++++++++ insert end++++++++++++++++++++++#
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
